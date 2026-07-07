@@ -2,11 +2,21 @@
 Order placement logic: ties together validation, the API client, and
 presenting a clean summary of what was requested vs. what happened.
 """
+import time
+
 from bot.client import BinanceAPIError, BinanceNetworkError, BinanceFuturesClient
 from bot.logging_config import setup_logger
 from bot.validators import ValidationError, validate_order_params
 
 logger = setup_logger(__name__)
+
+# Binance's order-placement response is sometimes just the initial
+# acknowledgment (status NEW) even for MARKET orders, with the actual
+# fill confirmed a moment later. These control a brief re-check so the
+# printed/logged result reflects the settled outcome rather than just
+# the instant of submission.
+STATUS_POLL_ATTEMPTS = 3
+STATUS_POLL_DELAY_SECONDS = 1
 
 
 class OrderResult:
@@ -79,6 +89,40 @@ def place_order(client: BinanceFuturesClient, symbol, side, order_type, quantity
         return OrderResult(success=False, request=request_summary, error=str(exc))
 
     logger.info("Order placed successfully: %s", response)
+
+    # MARKET orders can come back as NEW/0 executedQty even though they
+    # fill almost instantly - re-check briefly so we report the real outcome.
+    if order_type == "MARKET" and response.get("status") == "NEW":
+        response = _poll_for_fill(client, symbol, response)
+
     print_order_response(response)
     print("[SUCCESS] Order placed successfully.\n")
     return OrderResult(success=True, request=request_summary, response=response)
+
+
+def _poll_for_fill(client: BinanceFuturesClient, symbol: str, response: dict) -> dict:
+    """Re-query an order a few times to catch the settled fill status.
+
+    Returns the latest response seen; falls back to the original response
+    if polling fails or the status never updates (e.g. network hiccup) -
+    this is a best-effort check, not a hard requirement for success.
+    """
+    order_id = response.get("orderId")
+    if order_id is None:
+        return response
+
+    for attempt in range(1, STATUS_POLL_ATTEMPTS + 1):
+        time.sleep(STATUS_POLL_DELAY_SECONDS)
+        try:
+            latest = client.get_order_status(symbol, order_id)
+        except (BinanceAPIError, BinanceNetworkError) as exc:
+            logger.warning("Status poll attempt %s failed for order %s: %s", attempt, order_id, exc)
+            continue
+
+        logger.info("Status poll attempt %s for order %s: %s", attempt, order_id, latest)
+        if latest.get("status") != "NEW":
+            return latest
+
+    logger.info("Order %s still NEW after %s poll attempts; reporting last known state.",
+                order_id, STATUS_POLL_ATTEMPTS)
+    return response

@@ -10,11 +10,12 @@ validation, logging, and clean error handling.
 trading_bot/
   bot/
     __init__.py
-    client.py         # Signed REST client for Binance Futures Testnet
+    client.py         # Signed REST client for Binance Futures Demo Trading
     orders.py         # Order placement logic + request/response printing
-    validators.py      # CLI input validation
+    validators.py      # Input validation (shared by both CLI modes)
+    interactive.py     # Guided interactive menu mode
     logging_config.py  # Logging setup (console + rotating file handler)
-  cli.py               # CLI entry point (argparse)
+  cli.py               # CLI entry point (argparse + interactive mode)
   requirements.txt
   .env.example
   README.md
@@ -57,13 +58,25 @@ export BINANCE_API_SECRET="your_testnet_api_secret"
 
 On Windows (PowerShell):
 ```powershell
-$env:BINANCE_API_KEY="PUo42cUqX5HoDTRbsvGRi38bKyqzEYtaXDGrvqYwl3X5lGLljsCaWlUV0InlcsBL"
-$env:BINANCE_API_SECRET="1hYh700hOGAMYdIeaOl0jePDkCpAm3G7PQA5C57VLeiFH4c5Hp2sv67PC4Dedyv4"
+$env:BINANCE_API_KEY="your_testnet_api_key"
+$env:BINANCE_API_SECRET="your_testnet_api_secret"
 ```
 
 ## Usage
 
-### Market order (BUY)
+### Interactive mode (guided menus + validation messages)
+For a friendlier, no-flags-to-remember experience, just run:
+```bash
+python cli.py
+```
+This walks you through symbol, side, order type, quantity, and price
+(if applicable) via numbered menus, re-prompting with a specific error
+message on invalid input, and shows a review + confirmation step before
+anything is actually sent to Binance.
+
+### Flag-based mode (scriptable)
+
+#### Market order (BUY)
 ```bash
 python cli.py --symbol BTCUSDT --side BUY --type MARKET --quantity 0.01
 ```
@@ -141,10 +154,14 @@ can be scripted/CI-checked.
   `python-binance` library, to keep the signing/request logic fully
   visible and dependency-light.
 
-## Bonus / Possible Extensions
+## Bonus Features Implemented
+- **Enhanced CLI UX**: running `python cli.py` with no arguments launches
+  an interactive guided mode (`bot/interactive.py`) — numbered menus for
+  side/order type, re-prompting with specific validation messages on bad
+  input, and a review + y/N confirmation step before the order is sent.
+
+## Possible Further Extensions
 - Add a `STOP` order type in `bot/client.py` (Binance Futures supports
   `STOP`, `STOP_MARKET`, `TAKE_PROFIT`, etc. — same signed endpoint,
   different `type` + extra params like `stopPrice`).
-- Add an interactive mode (prompts instead of flags) using `Typer` or
-  `Click` for a friendlier CLI UX.
 - Add a `--dry-run` flag that prints the request without calling the API.
